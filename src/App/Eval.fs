@@ -112,6 +112,15 @@ let rec eval_expr (venv: value env) (e: expr) : value =
                         (pretty_value right_res)
             )
         )
+
+    | UnOp(("-" | "not" as op), expression) ->
+        let result = eval_expr venv expression
+
+        match (op, result) with
+        | ("-", VLit(LInt value)) -> VLit(LInt(-value))
+        | ("-", VLit(LFloat value)) -> VLit(LFloat(-value))
+        | ("not", VLit(LBool value)) -> VLit(LBool(not value))
+        | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
     // TODO complete this implementation
 
     | _ -> unexpected_error "eval_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
