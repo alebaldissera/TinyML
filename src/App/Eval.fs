@@ -41,7 +41,107 @@ let rec eval_expr (venv: value env) (e: expr) : value =
         | VLit(LBool false) -> VLit(LUnit)
         | _ -> unexpected_error "eval_expr: non-boolean in if guard %s [AST: %A]" (pretty_expr e) e
 
+    | BinOp(left_expression, ("+" | "-" | "*" | "/" as op), right_expression) ->
+        let left_res = eval_expr venv left_expression
+        let right_res = eval_expr venv right_expression
 
+        match (op, left_res, right_res) with
+        | ("+", VLit(LString l_value), VLit(LString r_value)) -> VLit(LString(l_value + r_value))
+        // let the pattern matching of the types of the operand to the function
+        | ("+", _, _) -> math_operation op (+) (+) venv left_res right_res
+        | ("-", _, _) -> math_operation op (-) (-) venv left_res right_res
+        | ("*", _, _) -> math_operation op (*) (*) venv left_res right_res
+        | ("/", _, _) -> math_operation op (/) (/) venv left_res right_res
+        | _ ->
+            unexpected_error
+                "eval_expr: illegal operands in binary operator (%s) %s - %s"
+                op
+                (pretty_value left_res)
+                (pretty_value right_res)
+
+    | BinOp(left_expression, "%", right_expression) ->
+        let left_res = eval_expr venv left_expression
+        let right_res = eval_expr venv left_expression
+
+        match (left_res, right_res) with
+        | (VLit(LInt l_value), (VLit(LInt r_value))) -> VLit(LInt(l_value % r_value))
+        | _ ->
+            unexpected_error
+                "eval_expr: illegal operands in binary operator (%%) %s - %s"
+                (pretty_value left_res)
+                (pretty_value right_res)
+
+    | BinOp(left_expression, ("=" | "<>" | "<" | ">" | "<=" | ">=" as op), right_expression) ->
+        let left_res = eval_expr venv left_expression
+        let right_res = eval_expr venv right_expression
+
+        VLit(
+            LBool(
+                match (op, left_res, right_res) with
+                // string comparisons
+                | ("=", VLit(LString l_val), VLit(LString r_val)) -> l_val = r_val
+                | ("<>", VLit(LString l_val), VLit(LString r_val)) -> l_val <> r_val
+                | (">", VLit(LString l_val), VLit(LString r_val)) -> l_val > r_val
+                | ("<", VLit(LString l_val), VLit(LString r_val)) -> l_val < r_val
+                | (">=", VLit(LString l_val), VLit(LString r_val)) -> l_val >= r_val
+                | ("<=", VLit(LString l_val), VLit(LString r_val)) -> l_val <= r_val
+
+                // booleans comparison
+                | ("=", VLit(LBool l_val), VLit(LBool r_val)) -> l_val = r_val
+                | ("<>", VLit(LBool l_val), VLit(LBool r_val)) -> l_val <> r_val
+                | (">", VLit(LBool l_val), VLit(LBool r_val)) -> l_val > r_val
+                | ("<", VLit(LBool l_val), VLit(LBool r_val)) -> l_val < r_val
+                | (">=", VLit(LBool l_val), VLit(LBool r_val)) -> l_val >= r_val
+                | ("<=", VLit(LBool l_val), VLit(LBool r_val)) -> l_val <= r_val
+
+                // Number requires som special treatment since there is two types of number
+                // Pattern matching on the type of the variable happens inside the function,
+                // there is a little bit of redundancy on the resolution of the type of the expression
+                // but this results in a more readable code
+                | ("=", _, _) -> number_comparison op (=) (=) left_res right_res
+                | ("<>", _, _) -> number_comparison op (<>) (<>) left_res right_res
+                | (">", _, _) -> number_comparison op (>) (>) left_res right_res
+                | ("<", _, _) -> number_comparison op (<) (<) left_res right_res
+                | (">=", _, _) -> number_comparison op (>=) (>=) left_res right_res
+                | ("<=", _, _) -> number_comparison op (<=) (<=) left_res right_res
+                | _ ->
+                    unexpected_error
+                        "eval_expr: illegal operands in binary operator (%s) %s - %s"
+                        op
+                        (pretty_value left_res)
+                        (pretty_value right_res)
+            )
+        )
     // TODO complete this implementation
 
     | _ -> unexpected_error "eval_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
+
+// Apply a binary math operation with type escalation
+and math_operation str_op int_operator float_operator env left_res right_res =
+
+
+    match (left_res, right_res) with
+    | (VLit(LInt l_value), VLit(LInt r_value)) -> VLit(LInt(int_operator l_value r_value))
+    | (VLit(LInt l_value), VLit(LFloat r_value)) -> VLit(LFloat(float_operator (float l_value) r_value))
+    | (VLit(LFloat l_value), VLit(LInt r_value)) -> VLit(LFloat(float_operator l_value (float r_value)))
+    | (VLit(LFloat l_value), VLit(LFloat r_value)) -> VLit(LFloat(float_operator l_value r_value))
+    | _ ->
+        unexpected_error
+            "eval_expr: illegal operands in binary operator (%s) %s - %s"
+            str_op
+            (pretty_value left_res)
+            (pretty_value right_res)
+
+and number_comparison str_op int_comparison float_comparison left_res right_res =
+
+    match (left_res, right_res) with
+    | (VLit(LInt l_value), VLit(LInt r_value)) -> int_comparison l_value r_value
+    | (VLit(LInt l_value), VLit(LFloat r_value)) -> float_comparison (float l_value) r_value
+    | (VLit(LFloat l_value), VLit(LInt r_value)) -> float_comparison l_value (float r_value)
+    | (VLit(LFloat l_value), VLit(LFloat r_value)) -> float_comparison l_value r_value
+    | _ ->
+        unexpected_error
+            "eval_expr: illegal operands in binary operator (%s) %s - %s"
+            str_op
+            (pretty_value left_res)
+            (pretty_value right_res)

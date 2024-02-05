@@ -163,6 +163,8 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         let env' = (x, t1) :: env
         typecheck_expr env' e2
 
+    // TODO: aggiungere typechecking del let rec
+
     | Lambda(x, Some t, e) ->
         let env' = (x, t) :: env
         let te = typecheck_expr env' e
@@ -208,16 +210,36 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
     | BinOp(e1, ("+" | "-" | "*" | "/" as op), e2) ->
         // TODO implements also for other types (remember that there is also the type infer and the evaluator that must implements this feature)
         let t1 = typecheck_expr env e1
-
-        if t1 <> TyInt then
-            type_error "left hand of (%s) operator is not an int: %O" op t1
-
         let t2 = typecheck_expr env e2
 
-        if t2 <> TyInt then
-            type_error "right hand of (%s) operator is not an int: %O" op t2
+        match (op, t1, t2) with
+        | ("+", TyString, TyString) -> TyString
+        | (_, TyInt, TyInt) -> TyInt
+        | (_, TyInt, TyFloat) -> TyFloat
+        | (_, TyFloat, TyInt) -> TyFloat
+        | (_, TyFloat, TyFloat) -> TyFloat
+        | (_, TyInt, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
+        | (_, TyFloat, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
+        | (_, _, TyInt) -> type_error "left hand of (%s) operator is not an int or float: %O" op t1
+        | (_, _, TyFloat) -> type_error "left hand of (%s) operator is not an int or float: %O" op t1
+        | ("+", TyString, _) -> type_error "right hand of (%s) operator is not a string: %O" op t2
+        | _ -> type_error "the operator %s is not defined for the given types: %O - %O" op t1 t2
 
-        TyInt
+
+    // if t1 = TyString && t1 <> t2 then
+    //     type_error "right hand of (%s) operator is not a string: %O" op t2
+
+    // if t1 <> TyInt && t1 <> TyFloat then
+    //     type_error "left hand of (%s) operator is not an int or float: %O" op t1
+
+
+    // if t2 <> TyInt && t2 <> TyFloat then
+    //     type_error "right hand of (%s) operator is not an int or float: %O" op t2
+
+    // match (t1, t2) with
+    // | (TyString, TyString) -> TyString
+    // | (TyInt, TyInt) -> TyInt
+    // | _ -> TyFloat
 
     | BinOp(left_expr, ("%" as op), right_expr) ->
         let left_type = typecheck_expr env left_expr
@@ -260,12 +282,12 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
     | BinOp(e1, ("<" | ">" | "<=" | ">=" as op), e2) ->
         let t1 = typecheck_expr env e1
 
-        if t1 <> TyInt then
+        if t1 <> TyInt && t1 <> TyFloat then
             type_error "left hand of (%s) operator is not an int: %O" op t1
 
         let t2 = typecheck_expr env e2
 
-        if t2 <> TyInt then
+        if t2 <> TyInt && t1 <> TyFloat then
             type_error "right hand of (%s) operator is not an int: %O" op t2
 
         TyBool
