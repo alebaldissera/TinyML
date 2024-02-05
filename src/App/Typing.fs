@@ -6,6 +6,7 @@
 module TinyML.Typing
 
 open Ast
+open System.Collections.Generic
 
 let type_error fmt = throw_formatted TypeError fmt
 
@@ -147,7 +148,11 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
     | Lit(LBool _) -> TyBool
     | Lit LUnit -> TyUnit
 
-    | Var x -> lookup env x
+    | Var x ->
+        try
+            lookup env x
+        with :? KeyNotFoundException ->
+            type_error "typecheck_expr: variable identifier not defined (%s)" x
 
     | Let(x, None, e1, e2) ->
         let t1 = typecheck_expr env e1

@@ -6,7 +6,7 @@
 module TinyML.Eval
 
 open Ast
-
+open System.Collections.Generic
 // evaluator
 //
 
@@ -27,7 +27,11 @@ let rec eval_expr (venv: value env) (e: expr) : value =
 
         | _ -> unexpected_error "non-closure on left hand of application"
 
-    | Var x -> lookup venv x
+    | Var x ->
+        try
+            lookup venv x
+        with :? KeyNotFoundException ->
+            unexpected_error "eval_expr: variable identifier not defined (%s)" x
 
     | IfThenElse(condition, expression1, Some expression2) ->
         match eval_expr venv condition with
