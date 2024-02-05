@@ -23,6 +23,7 @@ let unexpected_error fmt = throw_formatted UnexpectedError fmt
 
 type tyvar = int
 
+/// Questa union rappresenta i possibili tipi che il linguaggio mette a disposizione
 type ty =
     | TyName of string
     | TyArrow of ty * ty
@@ -30,18 +31,26 @@ type ty =
     | TyTuple of ty list
 
 // pseudo data constructors for literal types
+/// Scorciatoia per creare un nome tipo float
 let TyFloat = TyName "float"
+/// Scorciatoia per creare un nome tipo int
 let TyInt = TyName "int"
+/// Scorciatoia per creare un nome tipo char
 let TyChar = TyName "char"
+/// Scorciatoia per creare un nome tipo string
 let TyString = TyName "string"
+/// Scorciatoia per creare un nome tipo bool
 let TyBool = TyName "bool"
+/// Scorciatoia per creare un nome tipo int unit
 let TyUnit = TyName "unit"
 
+/// Definisce uno schema per associare gli id delle variabili ai rispettivi tipi
 type scheme = Forall of tyvar Set * ty
 
 // literals
 //
 
+/// Unione che mappa i tipi del linguaggio ai tipi di F#
 type lit =
     | LInt of int
     | LFloat of float
@@ -66,8 +75,9 @@ let (|TyUnit|_|) = (|TyLit|_|) "unit"
 // expressions
 //
 
+/// Definisce il binding come is_recursive, id, optional_type_annotation, expression
 type binding = bool * string * ty option * expr // (is_recursive, id, optional_type_annotation, expression)
-
+/// Definisce come è strutturata un'espressione
 and expr =
     | Lit of lit
     | Lambda of string * ty option * expr
@@ -80,7 +90,9 @@ and expr =
     | UnOp of string * expr
 
 // pseudo constructors for let bindings
+/// Costruttore per il let-binding
 let Let (x, tyo, e1, e2) = LetIn((false, x, tyo, e1), e2)
+/// Costruttore per il let-rec-binding
 let LetRec (x, tyo, e1, e2) = LetIn((true, x, tyo, e1), e2)
 
 // active patterns for let bindings
@@ -97,8 +109,10 @@ let (|LetRec|_|) =
 // environment
 //
 
+/// Type environment
 type 'a env = (string * 'a) list
 
+/// Lookup a variable in an environment (is the Gamma function)
 let lookup env (x: string) =
     let _, v = List.find (fun (x', v) -> x = x') env
     v
@@ -106,6 +120,7 @@ let lookup env (x: string) =
 // values
 //
 
+/// Union for getting values of stuff
 type value =
     | VLit of lit
     | VTuple of value list
