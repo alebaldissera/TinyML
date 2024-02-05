@@ -61,7 +61,7 @@ let rec eval_expr (venv: value env) (e: expr) : value =
 
     | BinOp(left_expression, "%", right_expression) ->
         let left_res = eval_expr venv left_expression
-        let right_res = eval_expr venv left_expression
+        let right_res = eval_expr venv right_expression
 
         match (left_res, right_res) with
         | (VLit(LInt l_value), (VLit(LInt r_value))) -> VLit(LInt(l_value % r_value))
@@ -113,6 +113,8 @@ let rec eval_expr (venv: value env) (e: expr) : value =
             )
         )
 
+    | BinOp(_, op, _) -> unexpected_error "eval_expr: unsupported binary operator (%s)" op
+
     | UnOp(("-" | "not" as op), expression) ->
         let result = eval_expr venv expression
 
@@ -121,6 +123,8 @@ let rec eval_expr (venv: value env) (e: expr) : value =
         | ("-", VLit(LFloat value)) -> VLit(LFloat(-value))
         | ("not", VLit(LBool value)) -> VLit(LBool(not value))
         | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+
+    | UnOp(op, _) -> unexpected_error "eval_expr: unsupported unary operator (%s)" op
     // TODO complete this implementation
 
     | _ -> unexpected_error "eval_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
@@ -141,6 +145,7 @@ and math_operation str_op int_operator float_operator env left_res right_res =
             (pretty_value left_res)
             (pretty_value right_res)
 
+// Comparison on numbers
 and number_comparison str_op int_comparison float_comparison left_res right_res =
 
     match (left_res, right_res) with

@@ -204,8 +204,7 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         if t1 <> TyBool then
             type_error "bool expected in if guard, but got %O" t1
 
-        let output_type = typecheck_expr env expression
-        output_type
+        typecheck_expr env expression
 
     | BinOp(e1, ("+" | "-" | "*" | "/" as op), e2) ->
         let t1 = typecheck_expr env e1
@@ -236,22 +235,6 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
             type_error "left hand of (%s) operator is not an int: %O" op right_type
 
         TyInt
-
-    | UnOp("not", e) ->
-        let t = typecheck_expr env e
-
-        if t <> TyBool then
-            type_error "operand of not-operator is not a bool: %O" t
-
-        TyBool
-
-    | UnOp("-", expression) ->
-        let expr_type = typecheck_expr env expression
-
-        if expr_type <> TyInt && expr_type <> TyFloat then
-            type_error "operand of minus operator is not of type int or float: %O" expr_type
-
-        expr_type
 
     | BinOp(e1, ("=" | "<>" as op), e2) ->
         let t1 = typecheck_expr env e1
@@ -291,6 +274,26 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
             type_error "left hand of (%s) operator is not a bool: %O" op right_type
 
         TyBool
+
+    | BinOp(_, op, _) -> unexpected_error "typecheck_expr: unsupported binary operator (%s)" op
+
+    | UnOp("not", e) ->
+        let t = typecheck_expr env e
+
+        if t <> TyBool then
+            type_error "operand of not-operator is not a bool: %O" t
+
+        TyBool
+
+    | UnOp("-", expression) ->
+        let expr_type = typecheck_expr env expression
+
+        if expr_type <> TyInt && expr_type <> TyFloat then
+            type_error "operand of minus operator is not of type int or float: %O" expr_type
+
+        expr_type
+
+    | UnOp(op, _) -> type_error "typecheck_expr: unsupported unary operator (%s)" op
 
     | Tuple es -> TyTuple(List.map (typecheck_expr env) es)
 
