@@ -208,7 +208,6 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         output_type
 
     | BinOp(e1, ("+" | "-" | "*" | "/" as op), e2) ->
-        // TODO implements also for other types (remember that there is also the type infer and the evaluator that must implements this feature)
         let t1 = typecheck_expr env e1
         let t2 = typecheck_expr env e2
 
@@ -224,22 +223,6 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         | (_, _, TyFloat) -> type_error "left hand of (%s) operator is not an int or float: %O" op t1
         | ("+", TyString, _) -> type_error "right hand of (%s) operator is not a string: %O" op t2
         | _ -> type_error "the operator %s is not defined for the given types: %O - %O" op t1 t2
-
-
-    // if t1 = TyString && t1 <> t2 then
-    //     type_error "right hand of (%s) operator is not a string: %O" op t2
-
-    // if t1 <> TyInt && t1 <> TyFloat then
-    //     type_error "left hand of (%s) operator is not an int or float: %O" op t1
-
-
-    // if t2 <> TyInt && t2 <> TyFloat then
-    //     type_error "right hand of (%s) operator is not an int or float: %O" op t2
-
-    // match (t1, t2) with
-    // | (TyString, TyString) -> TyString
-    // | (TyInt, TyInt) -> TyInt
-    // | _ -> TyFloat
 
     | BinOp(left_expr, ("%" as op), right_expr) ->
         let left_type = typecheck_expr env left_expr
@@ -281,16 +264,20 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
 
     | BinOp(e1, ("<" | ">" | "<=" | ">=" as op), e2) ->
         let t1 = typecheck_expr env e1
-
-        if t1 <> TyInt && t1 <> TyFloat then
-            type_error "left hand of (%s) operator is not an int: %O" op t1
-
         let t2 = typecheck_expr env e2
 
-        if t2 <> TyInt && t1 <> TyFloat then
-            type_error "right hand of (%s) operator is not an int: %O" op t2
-
-        TyBool
+        match (t1, t2) with
+        | (TyString, TyString) -> TyBool
+        | (TyBool, TyBool) -> TyBool
+        | (TyInt, TyInt) -> TyBool
+        | (TyInt, TyFloat) -> TyBool
+        | (TyFloat, TyInt) -> TyBool
+        | (TyFloat, TyFloat) -> TyBool
+        | (TyInt, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
+        | (TyFloat, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
+        | (TyString, _) -> type_error "right hand of (%s) operator is not a string: %O" op t2
+        | (TyBool, _) -> type_error "right hand of (%s) operator is not a bool: %O" op t2
+        | _ -> type_error "the operator %s is not defined for the given types: %O - %O" op t1 t2
 
     | BinOp(left_expr, ("and" | "or" as op), right_expr) ->
         let left_type = typecheck_expr env left_expr
