@@ -17,6 +17,7 @@ type subst = (tyvar * ty) list
 
 let rec is_typevar_into_type type_var t =
     let rec is_inner = is_typevar_into_type type_var
+
     match t with
     | TyVar name when type_var = name -> true
     | TyArrow(t1, t2) -> is_inner t1 || is_inner t2
@@ -167,6 +168,7 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         let te = typecheck_expr env' e
         TyArrow(t, te)
 
+    // TODO implementare il type checker per lambda non annotate
     | Lambda(x, None, e) -> type_error "unannotated lambdas are not supported by the type checker"
 
     | App(e1, e2) ->
@@ -194,7 +196,17 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
 
         t2
 
+    | IfThenElse(condition, expression, None) ->
+        let t1 = typecheck_expr env condition
+
+        if t1 <> TyBool then
+            type_error "bool expected in if guard, but got %O" t1
+
+        let output_type = typecheck_expr env expression
+        output_type
+
     | BinOp(e1, ("+" | "-" | "*" | "/" as op), e2) ->
+        // TODO implements also for other types (remember that there is also the type infer and the evaluator that must implements this feature)
         let t1 = typecheck_expr env e1
 
         if t1 <> TyInt then
@@ -207,6 +219,19 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
 
         TyInt
 
+    | BinOp(left_expr, ("%" as op), right_expr) ->
+        let left_type = typecheck_expr env left_expr
+
+        if left_type <> TyInt then
+            type_error "left hand of (%s) operator is not an int: %O" op left_type
+
+        let right_type = typecheck_expr env right_expr
+
+        if right_type <> TyInt then
+            type_error "left hand of (%s) operator is not an int: %O" op right_type
+
+        TyInt
+
     | UnOp("not", e) ->
         let t = typecheck_expr env e
 
@@ -215,12 +240,20 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
 
         TyBool
 
-    | BinOp(e1, "=", e2) ->
+    | UnOp("-", expression) ->
+        let expr_type = typecheck_expr env expression
+
+        if expr_type <> TyInt && expr_type <> TyFloat then
+            type_error "operand of minus operator is not of type int or float: %O" expr_type
+
+        expr_type
+
+    | BinOp(e1, ("=" | "<>" as op), e2) ->
         let t1 = typecheck_expr env e1
         let t2 = typecheck_expr env e2
 
         if t1 <> t2 then
-            type_error "left and right hands of equality operator are different: %O and %O" t1 t2
+            type_error "left and right hands of operator %s are different: %O and %O" op t1 t2
 
         TyBool
 
@@ -234,6 +267,19 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
 
         if t2 <> TyInt then
             type_error "right hand of (%s) operator is not an int: %O" op t2
+
+        TyBool
+
+    | BinOp(left_expr, ("and" | "or" as op), right_expr) ->
+        let left_type = typecheck_expr env left_expr
+
+        if left_type <> TyBool then
+            type_error "left hand of (%s) operator is not a bool: %O" op left_type
+
+        let right_type = typecheck_expr env right_expr
+
+        if right_type <> TyBool then
+            type_error "left hand of (%s) operator is not a bool: %O" op right_type
 
         TyBool
 
