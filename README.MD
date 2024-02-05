@@ -39,3 +39,7 @@ This are the unary operators: not, -. On the original implementation there was o
 The type checker and the evaluator now implements these operator for the following types:
 - not for booleans;
 - \- for integers and floats.
+
+## If-Then-Else
+
+The original implementation has support only for If-Then-Else statement. The new implementation supports also If-Then statement. The If guard supports only boolean expressions.
