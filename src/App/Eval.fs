@@ -24,7 +24,9 @@ let rec eval_expr (venv: value env) (e: expr) : value =
         | Closure(venv', x, e) ->
             let venv' = (x, v2) :: venv'
             eval_expr venv' e
-
+        | RecClosure(_, _, parameter, expression) ->
+            let venv'' = (parameter, v2) :: venv
+            eval_expr venv'' expression
         | _ -> unexpected_error "non-closure on left hand of application"
 
     | Var x ->
@@ -32,6 +34,22 @@ let rec eval_expr (venv: value env) (e: expr) : value =
             lookup venv x
         with :? KeyNotFoundException ->
             unexpected_error "eval_expr: variable identifier not defined (%s)" x
+
+    | Let(identifier, _, let_expression, expression) ->
+        let let_value = eval_expr venv let_expression
+        let venv' = (identifier, let_value) :: venv
+        eval_expr venv' expression
+
+    | LetRec(let_identifier, _, let_expression, in_expression) ->
+
+        match let_expression with
+        | Lambda(parameter_identifier, _, expression) ->
+            let venv' =
+                (let_identifier, RecClosure(venv, let_identifier, parameter_identifier, expression))
+                :: venv
+
+            eval_expr venv' in_expression
+        | _ -> unexpected_error "eval_expr: non lambda expression assigned to let-rec, given %O" let_expression
 
     | IfThenElse(condition, expression1, Some expression2) ->
         match eval_expr venv condition with

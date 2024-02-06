@@ -168,12 +168,32 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         let env' = (x, t1) :: env
         typecheck_expr env' e2
 
+    | LetRec(identifier, Some type_annotation, let_expression, in_expression) ->
+        // Since this is a let-rec, let's generate the new environment with the new identifier
+
+        let env' = (identifier, type_annotation) :: env
+        let let_expression_type = typecheck_expr env' let_expression
+
+        // Check if the annotation and the type of the expression we are assigning are the same
+        if let_expression_type <> type_annotation then
+            type_error "type %O differs from type %O in let-rec-binding" type_annotation let_expression_type
+
+        // Since this is a let-rec let's check if the expression we are assigning is a lambda.
+        // We don't support recursive variables defined on literals
+        match let_expression_type with
+        | TyArrow(_, _) -> typecheck_expr env' in_expression
+        | _ -> type_error "typecheck_expr: let-rec-binding are supported only for lambda, given %O" let_expression_type
+
+    | LetRec(identifier, None, let_expression, expression) ->
+        // Here we have to perform the type inference algorithm to check out the type of the identifier based on the expression given
+        type_error "unannotated let-rec-binding are not supported by the type checker"
+
     // TODO: aggiungere typechecking del let rec
 
-    | Lambda(x, Some t, e) ->
-        let env' = (x, t) :: env
-        let te = typecheck_expr env' e
-        TyArrow(t, te)
+    | Lambda(parameter, Some parameter_type, expression) ->
+        let env' = (parameter, parameter_type) :: env
+        let expression_type = typecheck_expr env' expression
+        TyArrow(parameter_type, expression_type)
 
     // TODO implementare il type checker per lambda non annotate
     | Lambda(x, None, e) -> type_error "unannotated lambdas are not supported by the type checker"
