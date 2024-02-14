@@ -14,6 +14,12 @@ exception CompositionError of string
 
 exception UnificationError of string
 
+let mutable type_variable_index = 0
+
+let create_type_variable () = 
+    type_variable_index <- type_variable_index + 1
+    TyVar type_variable_index
+
 type subst = (tyvar * ty) list
 
 let rec is_typevar_into_type type_var t =
@@ -25,28 +31,44 @@ let rec is_typevar_into_type type_var t =
     | TyTuple(head :: tail) -> is_inner head || is_inner (TyTuple tail)
     | _ -> false
 
+let rec apply_subst (t: ty) (s: subst) : ty =
+    match t with
+    | TyName _ -> t
+    | TyVar type_var ->
+        try 
+            s |> List.find (fun (subst_ty_var, _) -> subst_ty_var = type_var) |> snd
+        with :? KeyNotFoundException -> t
+    | TyArrow(t1, t2) -> TyArrow(apply_subst t1 s, apply_subst t2 s)
+    | TyTuple l -> TyTuple(l |> List.map (fun elm -> apply_subst elm s))
+
 // TODO implement this
 let compose_subst (s1: subst) (s2: subst) : subst =
 
-    let exists_conflict_subst =
-        List.allPairs s1 s2
-        |> List.filter (fun (sub1, sub2) -> fst sub1 = fst sub2 && snd sub1 <> snd sub2)
-        |> List.isEmpty
-        |> not
+    // application of the first one to the codomain of the second one
+    let composed_subst = 
+        (List.map (fun (type_var, t) -> (type_var, apply_subst t s1)) s2)
+        @ s1
+        |> List.distinct
 
-    if exists_conflict_subst then
-        raise (CompositionError "Error while compose substitutions, domains are not disjoint")
+    let conflicts =
+        List.allPairs composed_subst composed_subst
+        |> List.tryFind (fun (sub1, sub2) -> fst sub1 = fst sub2 && snd sub1 <> snd sub2)
 
-    let substitutions = List.distinct s1 @ s2
+    match conflicts with
+    | Some ((tyvar, tau1), (_, tau2)) -> raise (CompositionError (sprintf "Error while compose substitutions. Variable type %s maps to type %s and %s" (pretty_ty (TyVar tyvar)) (pretty_ty tau1) (pretty_ty tau2)))
+    | None -> ()
 
-    let exists_circularity =
-        List.allPairs (List.map fst substitutions) (List.map snd substitutions)
-        |> List.exists (fun (type_var, t) -> is_typevar_into_type type_var t)
+    // search for circularity
+    let circularity = 
+        composed_subst |> List.tryFind (fun(type_var, t)-> is_typevar_into_type type_var t)
 
-    if exists_circularity then
-        raise (CompositionError "Error while compose substitutions, found circularity")
+    match circularity with
+    | Some (type_var, t) -> raise (CompositionError (sprintf "Circularity found during composition: type variable %s maps to type %s" (pretty_ty (TyVar type_var)) (pretty_ty t)))
+    | None -> ()
 
-    substitutions
+    composed_subst
+
+let ($) = compose_subst
 
 // TODO implement this
 let rec unify (t1: ty) (t2: ty) : subst =
@@ -54,24 +76,10 @@ let rec unify (t1: ty) (t2: ty) : subst =
     | TyName c1, TyName c2 when c1 = c2 -> []
     | TyVar type_var, t
     | t, TyVar type_var -> (type_var, t) :: []
-    | TyArrow(t1, t2), TyArrow(t3, t4) -> compose_subst (unify t1 t3) (unify t2 t4)
-    | TyTuple(t1 :: tail), TyTuple(t1' :: tail') -> compose_subst (unify t1 t1') (unify (TyTuple tail) (TyTuple tail'))
+    | TyArrow(t1, t2), TyArrow(t3, t4) -> (unify t1 t3) $ (unify t2 t4)
+    | TyTuple(t1 :: tail), TyTuple(t1' :: tail') -> (unify t1 t1') $ (unify (TyTuple tail) (TyTuple tail'))
     | _ -> raise (UnificationError "Error while unify, some types are incoherent each other")
 
-// TODO implement this
-let rec apply_subst (t: ty) (s: subst) : ty =
-    match t with
-    | TyName constant_type -> TyName constant_type
-    | TyVar type_var ->
-        let t = List.tryFind (fun elm -> fst elm = type_var) s
-
-        match t with
-        | Some s -> snd s
-        | None -> TyVar type_var
-    | TyArrow(t1, t2) -> TyArrow(apply_subst t1 s, apply_subst t2 s)
-    | TyTuple l -> TyTuple(l |> List.map (fun elm -> apply_subst elm s))
-
-let ($) = compose_subst
 
 // TODO implement this
 let rec freevars_ty t =
@@ -91,10 +99,26 @@ let rec freevars_scheme_env (env: scheme env) =
     match env with
     | head_scheme :: tail -> Set.union (freevars_scheme (snd head_scheme)) (freevars_scheme_env tail)
     | [] -> Set.empty
-
+ 
+let gen env ty =
+    Forall(freevars_ty ty - freevars_scheme_env env, ty)
 
 // basic environment: add builtin operators at will
 //
+
+let inst (Forall(free_var, t)) =  
+    let polymorphic_var_subst =
+        free_var
+        |> Set.toList
+        |> List.map (fun var -> (var, create_type_variable ()))
+    apply_subst t polymorphic_var_subst
+
+let rec apply_subst_scheme (Forall(tyvar, ty)) (subst: subst) = 
+    let theta' = List.filter (fun (scheme_tyvar: tyvar, _) -> not (Set.contains scheme_tyvar tyvar)) subst
+    Forall(tyvar, apply_subst ty theta')
+
+let rec apply_subst_env (env: scheme env) (subst: subst) =
+    env |> List.map (fun (id, schema) -> (id, apply_subst_scheme schema subst))
 
 let gamma0 =
     [ ("+", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
@@ -102,6 +126,25 @@ let gamma0 =
       ("*", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
       ("/", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
       ("<", TyArrow(TyInt, TyArrow(TyInt, TyBool))) ]
+
+let binary_operators = 
+    [ ("+", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat); (TyString, TyString, TyString) ])
+      ("-", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
+      ("*", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
+      ("/", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
+      ("%", [ (TyInt, TyInt, TyInt) ])
+      ("=", [ (TyInt, TyInt, TyBool); (TyFloat, TyFloat, TyBool); (TyChar, TyChar, TyBool); (TyString, TyString, TyBool); (TyUnit, TyUnit, TyBool); (TyBool,TyBool, TyBool) ])
+      ("<", [ (TyInt, TyInt, TyBool); (TyFloat, TyFloat, TyBool); (TyChar, TyChar, TyBool); (TyString, TyString, TyBool); (TyUnit, TyUnit, TyBool); (TyBool,TyBool, TyBool) ])
+      ("<=", [ (TyInt, TyInt, TyBool); (TyFloat, TyFloat, TyBool); (TyChar, TyChar, TyBool); (TyString, TyString, TyBool); (TyUnit, TyUnit, TyBool); (TyBool,TyBool, TyBool) ])
+      (">", [ (TyInt, TyInt, TyBool); (TyFloat, TyFloat, TyBool); (TyChar, TyChar, TyBool); (TyString, TyString, TyBool); (TyUnit, TyUnit, TyBool); (TyBool,TyBool, TyBool) ])
+      (">=", [ (TyInt, TyInt, TyBool); (TyFloat, TyFloat, TyBool); (TyChar, TyChar, TyBool); (TyString, TyString, TyBool); (TyUnit, TyUnit, TyBool); (TyBool,TyBool, TyBool) ])
+      ("<>", [ (TyInt, TyInt, TyBool); (TyFloat, TyFloat, TyBool); (TyChar, TyChar, TyBool); (TyString, TyString, TyBool); (TyUnit, TyUnit, TyBool); (TyBool,TyBool, TyBool) ])
+      ("and", [ (TyBool, TyBool, TyBool) ])
+      ("or", [ (TyBool, TyBool, TyBool) ]) ]
+
+let unary_operators = 
+    [ ("not", [ (TyBool, TyBool) ])
+      ("-", [ (TyInt, TyInt); (TyFloat, TyFloat) ]) ]
 
 // type inference
 //
@@ -115,7 +158,60 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
     | Lit(LChar _) -> TyChar, []
     | Lit LUnit -> TyUnit, []
 
-    | BinOp(e1, op, e2) -> typeinfer_expr env (App(App(Var op, e1), e2))
+    | Var(identifier) -> 
+        try 
+            let var = lookup env identifier
+            inst var, []
+        with :? KeyNotFoundException -> unexpected_error "typeinfer_expr: variable identifier is not defined (%s)" identifier
+
+    | App(left_expression, right_expression) -> 
+        printf "Infering type for application"
+        let tau1, theta1 = typeinfer_expr env left_expression
+        let tau2, theta2= typeinfer_expr (apply_subst_env env theta1) right_expression
+        let type_var = create_type_variable ()
+        let theta3 = unify tau1 (TyArrow(tau2, type_var))
+        (apply_subst type_var theta3, theta3 $ theta2)
+
+    | BinOp(e1, operator, e2) ->
+        let tau1, theta1 = typeinfer_expr env e1
+        let tau2, theta2 = typeinfer_expr env e2
+
+        try 
+            let _, operation_types = List.find (fun (op, _) -> op = operator) binary_operators
+            try 
+                let left_ty, right_ty, res_ty = 
+                    match (tau1, tau2) with 
+                    // check if the operator is defined for the two types
+                    | (TyName _, TyName _) -> List.find (fun (left_ty, right_ty, _) -> ((left_ty = tau1) && (right_ty = tau2))) operation_types
+                    // check if the operator is defined for the right type so the algorithm can infer the left type
+                    | (TyVar _, TyName _) -> List.find (fun (_, right_ty, _) -> tau2 = right_ty) operation_types
+                    // check if the operator is defined for the left type so the algorithm can infer the roght type
+                    | (TyName _, TyVar _) -> List.find (fun (left_ty, _, _) -> tau1 = left_ty) operation_types
+                    //fallback to the first definition of the operator
+                    | (TyVar _, TyVar _) -> operation_types.[0] 
+                    | _ -> unexpected_error "typeinfer_expr: unable to find or infer types for operator (%s)" operator
+                
+                let sub1 = unify left_ty tau1
+                let sub2 = unify right_ty tau2
+
+                let finsub = sub1 $ sub2 $ theta1 $ theta2
+                apply_subst res_ty finsub, finsub
+
+                with :? KeyNotFoundException -> unexpected_error "typeinfer_expr: type of binary operator (%s) is not defined for type (%O, %O); available types: (%O)" operator tau1 tau2 operation_types
+        with :? KeyNotFoundException -> unexpected_error "typeinfer_expr: undefined binary operator (%s)" operator
+
+    | UnOp(operator, expression) -> unexpected_error "typeinfer_expr: unary operator (%s) not supported" operator
+        // let tau, theta = typeinfer_expr env expression
+
+        // let _, operation_types = List.find (fun (op, _)-> op = operator) unary_operators
+        // try 
+        //     let _ = List.find (fun (ty) -> ty = tau) operation_types
+        //     match operator with 
+        //     | "not" -> apply_subst TyBool theta, theta
+        //     | "-" -> apply_subst tau theta, theta
+        //     | _ -> unexpected_error "typeinfer_expr: unaray operator (%s) is not defined" operator
+
+        // with :? KeyNotFoundException -> unexpected_error "typeinfer_expr: type of unary operator %s is not defined for type (%O); available types: (%O)" operator tau operation_types
 
     | IfThenElse(e1, e2, Some e3) ->
         // TODO optionally you can follow the original type inference rule and apply/compose substitutions incrementally (see Advanced Notes on ML, Table 4, page 5)
@@ -127,7 +223,61 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
         let s = s5 $ s4 $ s3 $ s2 $ s1
         apply_subst t2 s, s
 
+    | Lambda(parameter, type_annotation, experssion) ->
+        let parameter_type_var = create_type_variable ()
 
+        let type_annotation_subst = 
+            match type_annotation with
+            | None -> []
+            | Some ty -> unify parameter_type_var ty
+
+        let parameter_type_scheme: scheme = 
+            Forall(Set.empty, apply_subst parameter_type_var type_annotation_subst)
+        let env' = (parameter, parameter_type_scheme) :: env
+        let tau2, theta2 = typeinfer_expr env' experssion
+        
+        let theta = theta2 $ type_annotation_subst
+        let tau1 = apply_subst parameter_type_var theta
+
+        apply_subst (TyArrow(tau1, tau2)) theta , theta
+        
+    | Let(identifier, type_annotation, value, in_expr) -> 
+        let (value_type, value_subst) = typeinfer_expr env value
+
+        let subst1 = 
+            match type_annotation with
+            | None -> []
+            | Some t -> unify value_type t
+            $ value_subst
+
+        let env' = apply_subst_env env subst1
+        let sigma1 = gen env' value_type
+        let in_type, in_subst = typeinfer_expr ((identifier, sigma1) :: env') in_expr
+        let final_subst = subst1 $ in_subst
+        in_type, final_subst 
+
+    | LetRec(identifier, type_annotation, let_expression, in_expression) ->
+        let identifier_var_type = create_type_variable ()
+        let env' = (identifier, gen env identifier_var_type) :: env
+        let tau1, theta1 = typeinfer_expr env let_expression
+
+        let theta1 = ((
+            match type_annotation with 
+            | None -> []
+            | Some t -> unify tau1 t
+        ) $ theta1)
+        
+        let sigma1 = gen env' tau1
+        let env'' = (identifier, sigma1) :: env'
+        let tau2, theta2 = typeinfer_expr env'' in_expression
+        let theta3 = unify identifier_var_type (apply_subst tau1 theta1) 
+        (tau2, theta1 $ theta2 $ theta3)
+
+    | Tuple(values) ->
+        let res = List.map (typeinfer_expr env) values
+        let types = List.map (fun(ty, _) -> ty) res
+        let subst = List.reduce (fun sub1 sub2 -> sub1 $ sub2) (List.map (fun(_, sub)-> sub) res)
+        TyTuple(types), subst
 
 
     // TODO complete this implementation

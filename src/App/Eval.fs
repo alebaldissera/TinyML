@@ -149,6 +149,8 @@ let rec eval_expr (venv: value env) (e: expr) : value =
     | UnOp(op, _) -> unexpected_error "eval_expr: unsupported unary operator (%s)" op
     // TODO complete this implementation
 
+    | Tuple(expressions) -> VTuple(List.map (fun expr -> eval_expr venv expr) expressions)
+
     | _ -> unexpected_error "eval_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
 
 // Apply a binary math operation with type escalation
