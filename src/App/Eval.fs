@@ -158,8 +158,6 @@ and math_operation str_op int_operator float_operator env left_res right_res =
 
     match (left_res, right_res) with
     | (VLit(LInt l_value), VLit(LInt r_value)) -> VLit(LInt(int_operator l_value r_value))
-    | (VLit(LInt l_value), VLit(LFloat r_value)) -> VLit(LFloat(float_operator (float l_value) r_value))
-    | (VLit(LFloat l_value), VLit(LInt r_value)) -> VLit(LFloat(float_operator l_value (float r_value)))
     | (VLit(LFloat l_value), VLit(LFloat r_value)) -> VLit(LFloat(float_operator l_value r_value))
     | _ ->
         unexpected_error
@@ -173,8 +171,6 @@ and number_comparison str_op int_comparison float_comparison left_res right_res 
 
     match (left_res, right_res) with
     | (VLit(LInt l_value), VLit(LInt r_value)) -> int_comparison l_value r_value
-    | (VLit(LInt l_value), VLit(LFloat r_value)) -> float_comparison (float l_value) r_value
-    | (VLit(LFloat l_value), VLit(LInt r_value)) -> float_comparison l_value (float r_value)
     | (VLit(LFloat l_value), VLit(LFloat r_value)) -> float_comparison l_value r_value
     | _ ->
         unexpected_error
