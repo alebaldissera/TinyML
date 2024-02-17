@@ -13,6 +13,9 @@ open Printf
 exception SyntaxError of string * FSharp.Text.Lexing.LexBuffer<char>
 exception TypeError of string
 exception UnexpectedError of string
+exception InferError of string
+exception UnificationError of string
+exception CompositionError of string
 
 let throw_formatted exnf fmt = ksprintf (fun s -> raise (exnf s)) fmt
 
@@ -77,6 +80,7 @@ let (|TyUnit|_|) = (|TyLit|_|) "unit"
 
 /// Definisce il binding come is_recursive, id, optional_type_annotation, expression
 type binding = bool * string * ty option * expr // (is_recursive, id, optional_type_annotation, expression)
+
 /// Definisce come è strutturata un'espressione
 and expr =
     | Lit of lit
@@ -155,12 +159,13 @@ let rec pretty_ty t =
     match t with
     | TyName s -> s
     | TyArrow(t1, t2) -> sprintf "%s -> %s" (pretty_ty t1) (pretty_ty t2)
-    | TyVar n -> 
+    | TyVar n ->
         let rec getChar x =
             if x > 26 then
                 string (char (x - 26 + 96)) + getChar (x - 26)
             else
                 string (char (x + 96))
+
         sprintf "'%s" (getChar n)
     | TyTuple ts -> sprintf "(%s)" (pretty_tupled pretty_ty ts)
 

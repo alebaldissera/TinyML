@@ -9,10 +9,9 @@ open Ast
 open System.Collections.Generic
 
 let type_error fmt = throw_formatted TypeError fmt
-
-exception CompositionError of string
-
-exception UnificationError of string * ty * ty
+let infer_error fmt = throw_formatted InferError fmt
+let unification_error fmt = throw_formatted UnificationError fmt
+let composition_error fmt = throw_formatted CompositionError fmt
 
 let mutable type_variable_index = 0
 
@@ -61,15 +60,11 @@ let compose_subst (s1: subst) (s2: subst) : subst =
 
     match conflicts with
     | Some((tyvar, tau1), (_, tau2)) ->
-        raise (
-            CompositionError(
-                sprintf
-                    "Error while compose substitutions. Variable type %s maps to type %s and %s"
-                    (pretty_ty (TyVar tyvar))
-                    (pretty_ty tau1)
-                    (pretty_ty tau2)
-            )
-        )
+        composition_error
+            "Error while compose substitutions. Variable type %s maps to type %s and %s"
+            (pretty_ty (TyVar tyvar))
+            (pretty_ty tau1)
+            (pretty_ty tau2)
     | None -> ()
 
     // search for circularity
@@ -79,14 +74,10 @@ let compose_subst (s1: subst) (s2: subst) : subst =
 
     match circularity with
     | Some(type_var, t) ->
-        raise (
-            CompositionError(
-                sprintf
-                    "Circularity found during composition: type variable %s maps to type %s"
-                    (pretty_ty (TyVar type_var))
-                    (pretty_ty t)
-            )
-        )
+        composition_error
+            "Circularity found during composition: type variable %s maps to type %s"
+            (pretty_ty (TyVar type_var))
+            (pretty_ty t)
     | None -> ()
 
     composed_subst
@@ -100,7 +91,11 @@ let rec unify (t1: ty) (t2: ty) : subst =
     | t, TyVar type_var -> (type_var, t) :: []
     | TyArrow(t1, t2), TyArrow(t3, t4) -> (unify t1 t3) $ (unify t2 t4)
     | TyTuple(t1 :: tail), TyTuple(t1' :: tail') -> (unify t1 t1') $ (unify (TyTuple tail) (TyTuple tail'))
-    | _ -> raise (UnificationError("Error while unify, some types are incoherent each other", t1, t2))
+    | _ ->
+        unification_error
+            "Error while unify, some types are incoherent each other. Unable to unify type (%s) with type (%s)"
+            (pretty_ty t1)
+            (pretty_ty t2)
 
 let rec freevars_ty t =
     match t with
@@ -233,23 +228,14 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
             let var = lookup env identifier
             inst var, []
         with :? KeyNotFoundException ->
-            unexpected_error "typeinfer_expr: variable identifier is not defined (%s)" identifier
+            unexpected_error "variable identifier is not defined (%s)" identifier
 
     | App(left_expression, right_expression) ->
-        try
-            let tau1, theta1 = typeinfer_expr env left_expression
-            let tau2, theta2 = typeinfer_expr (apply_subst_env env theta1) right_expression
-            let type_var = create_type_variable ()
-            let theta3 = unify tau1 (TyArrow(tau2, type_var))
-            (apply_subst type_var theta3, theta3 $ theta2)
-        with
-        | UnificationError(message, type1, type2) ->
-            unexpected_error
-                "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                message
-                (pretty_ty type1)
-                (pretty_ty type2)
-        | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
+        let tau1, theta1 = typeinfer_expr env left_expression
+        let tau2, theta2 = typeinfer_expr (apply_subst_env env theta1) right_expression
+        let type_var = create_type_variable ()
+        let theta3 = unify tau1 (TyArrow(tau2, type_var))
+        (apply_subst type_var theta3, theta3 $ theta2)
     | BinOp(e1, operator, e2) ->
         let tau1, theta1 = typeinfer_expr env e1
         let tau2, theta2 = typeinfer_expr env e2
@@ -279,21 +265,13 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
                 let finsub = sub1 $ sub2 $ theta1 $ theta2
                 apply_subst res_ty finsub, finsub
 
-            with
-            | :? KeyNotFoundException ->
+            with :? KeyNotFoundException ->
                 unexpected_error
                     "typeinfer_expr: type of binary operator (%s) is not defined for type (%O, %O); available types: (%O)"
                     operator
                     tau1
                     tau2
                     operation_types
-            | UnificationError(message, type1, type2) ->
-                unexpected_error
-                    "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                    message
-                    (pretty_ty type1)
-                    (pretty_ty type2)
-            | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
         with :? KeyNotFoundException ->
             unexpected_error "typeinfer_expr: undefined binary operator (%s)" operator
 
@@ -314,130 +292,84 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
                 let sub = (unify in_type tau) $ theta
                 apply_subst out_type sub, sub
 
-            with
-            | :? KeyNotFoundException ->
+            with :? KeyNotFoundException ->
                 unexpected_error
                     "typeinfer_expr: type of unary operator %s is not defined for type (%O); available types: (%O)"
                     operator
                     tau
                     operation_types
-            | UnificationError(message, type1, type2) ->
-                unexpected_error
-                    "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                    message
-                    (pretty_ty type1)
-                    (pretty_ty type2)
-            | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
         with :? KeyNotFoundException ->
             unexpected_error "typeinfer_expr: unary operator (%s) not defined" operator
 
     | IfThenElse(e1, e2, Some e3) ->
-        try
-            let t1, s1 = typeinfer_expr env e1
-            let s2 = unify t1 TyBool
-            let t2, s3 = typeinfer_expr env e2
-            let t3, s4 = typeinfer_expr env e3
-            let s5 = unify t2 t3
-            let s = s5 $ s4 $ s3 $ s2 $ s1
-            apply_subst t2 s, s
-        with
-        | UnificationError(message, type1, type2) ->
-            unexpected_error
-                "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                message
-                (pretty_ty type1)
-                (pretty_ty type2)
-        | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
+        let t1, s1 = typeinfer_expr env e1
+        let s2 = unify t1 TyBool
+        let t2, s3 = typeinfer_expr env e2
+        let t3, s4 = typeinfer_expr env e3
+        let s5 = unify t2 t3
+        let s = s5 $ s4 $ s3 $ s2 $ s1
+        apply_subst t2 s, s
 
     | Lambda(parameter, type_annotation, expression) ->
-        try
-            let parameter_type_var = create_type_variable ()
+        let parameter_type_var = create_type_variable ()
 
-            let type_annotation_subst =
-                match type_annotation with
-                | None -> []
-                | Some ty -> unify parameter_type_var ty
+        let type_annotation_subst =
+            match type_annotation with
+            | None -> []
+            | Some ty -> unify parameter_type_var ty
 
-            let parameter_type_scheme: scheme =
-                Forall(Set.empty, apply_subst parameter_type_var type_annotation_subst)
+        let parameter_type_scheme: scheme =
+            Forall(Set.empty, apply_subst parameter_type_var type_annotation_subst)
 
-            let env' = (parameter, parameter_type_scheme) :: env
-            let tau2, theta2 = typeinfer_expr env' expression
+        let env' = (parameter, parameter_type_scheme) :: env
+        let tau2, theta2 = typeinfer_expr env' expression
 
-            let theta = theta2 $ type_annotation_subst
-            let tau1 = apply_subst parameter_type_var theta
+        let theta = theta2 $ type_annotation_subst
+        let tau1 = apply_subst parameter_type_var theta
 
-            apply_subst (TyArrow(tau1, tau2)) theta, theta
-        with
-        | UnificationError(message, type1, type2) ->
-            unexpected_error
-                "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                message
-                (pretty_ty type1)
-                (pretty_ty type2)
-        | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
+        apply_subst (TyArrow(tau1, tau2)) theta, theta
 
     | Let(identifier, type_annotation, value, in_expr) ->
-        try
-            let (value_type, value_subst) = typeinfer_expr env value
+        let (value_type, value_subst) = typeinfer_expr env value
 
-            let subst1 =
-                match type_annotation with
-                | None -> []
-                | Some t -> unify value_type t
-                $ value_subst
+        let subst1 =
+            match type_annotation with
+            | None -> []
+            | Some t -> unify value_type t
+            $ value_subst
 
-            let env' = apply_subst_env env subst1
-            let sigma1 = gen env' value_type
-            let in_type, in_subst = typeinfer_expr ((identifier, sigma1) :: env') in_expr
-            let final_subst = subst1 $ in_subst
-            in_type, final_subst
-        with
-        | UnificationError(message, type1, type2) ->
-            unexpected_error
-                "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                message
-                (pretty_ty type1)
-                (pretty_ty type2)
-        | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
+        let env' = apply_subst_env env subst1
+        let sigma1 = gen env' value_type
+        let in_type, in_subst = typeinfer_expr ((identifier, sigma1) :: env') in_expr
+        let final_subst = subst1 $ in_subst
+        in_type, final_subst
 
     | LetRec(identifier, type_annotation, let_expression, in_expression) ->
-        try
-            let identifier_var_type = create_type_variable ()
-            let env' = (identifier, gen env identifier_var_type) :: env
-            let tau1, theta1 = typeinfer_expr env' let_expression
 
-            let theta1 =
-                ((match type_annotation with
-                  | None -> []
-                  | Some t -> unify tau1 t)
-                 $ theta1)
+        let identifier_var_type = create_type_variable ()
+        let env' = (identifier, gen env identifier_var_type) :: env
+        let tau1, theta1 = typeinfer_expr env' let_expression
 
-            let sigma1 = gen env' tau1
-            let env'' = (identifier, sigma1) :: env'
-            let tau2, theta2 = typeinfer_expr env'' in_expression
-            let theta3 = unify identifier_var_type (apply_subst tau1 theta1)
-            (tau2, theta1 $ theta2 $ theta3)
-        with
-        | UnificationError(message, type1, type2) ->
-            unexpected_error
-                "typeinfer_expr: %s. Unable to unify type (%s) with type (%s)"
-                message
-                (pretty_ty type1)
-                (pretty_ty type2)
-        | CompositionError(message) -> unexpected_error "typeinfer_expr: %s" message
+        let theta1 =
+            ((match type_annotation with
+              | None -> []
+              | Some t -> unify tau1 t)
+             $ theta1)
+
+        let sigma1 = gen env' tau1
+        let env'' = (identifier, sigma1) :: env'
+        let tau2, theta2 = typeinfer_expr env'' in_expression
+        let theta3 = unify identifier_var_type (apply_subst tau1 theta1)
+        (tau2, theta1 $ theta2 $ theta3)
 
     | Tuple(values) ->
-        try
-            let res = List.map (typeinfer_expr env) values
-            let types = List.map (fun (ty, _) -> ty) res
+        let res = List.map (typeinfer_expr env) values
+        let types = List.map (fun (ty, _) -> ty) res
 
-            let subst =
-                List.reduce (fun sub1 sub2 -> sub1 $ sub2) (List.map (fun (_, sub) -> sub) res)
+        let subst =
+            List.reduce (fun sub1 sub2 -> sub1 $ sub2) (List.map (fun (_, sub) -> sub) res)
 
-            TyTuple(types), subst
-        with CompositionError(message) ->
-            unexpected_error "typeinfer_expr: %s" message
+        TyTuple(types), subst
 
     | _ -> unexpected_error "typeinfer_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
 

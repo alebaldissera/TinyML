@@ -9,39 +9,52 @@ open System
 open FSharp.Common
 open TinyML.Ast
 
-let parse_from_TextReader rd filename parser = Parsing.parse_from_TextReader SyntaxError rd filename (1, 1) parser Lexer.tokenize Parser.tokenTagToTokenId
+let parse_from_TextReader rd filename parser =
+    Parsing.parse_from_TextReader SyntaxError rd filename (1, 1) parser Lexer.tokenize Parser.tokenTagToTokenId
 
-let parse_from_string line filename parser = Parsing.parse_from_string SyntaxError line filename (1, 1) parser Lexer.tokenize Parser.tokenTagToTokenId
+let parse_from_string line filename parser =
+    Parsing.parse_from_string SyntaxError line filename (1, 1) parser Lexer.tokenize Parser.tokenTagToTokenId
 
 let interpret_expr tenv venv e =
-    #if DEBUG
+#if DEBUG
     printfn "AST:\t%A\npretty:\t%s" e (pretty_expr e)
-    #endif
+#endif
     // TODO you can invoke the typeinfer_expr here
     // let t = Typing.typecheck_expr tenv e
     let (t, sub) = Typing.typeinfer_expr tenv e
     let final_type = Typing.apply_subst t sub
-    #if DEBUG
+#if DEBUG
     printfn "type:\t%s" (pretty_ty final_type)
-    #endif
+#endif
     let v = Eval.eval_expr venv e
-    #if DEBUG
+#if DEBUG
     printfn "value:\t%s\n" (pretty_value v)
-    #endif
+#endif
     t, v
 
 let trap f =
-    try f ()
-    with SyntaxError (msg, lexbuf) -> printfn "\nsyntax error: %s\nat token: \"%s\"\nlocation: %O" msg (Array.fold (sprintf "%s%c") "" lexbuf.Lexeme) lexbuf.EndPos
-       | TypeError msg             -> printfn "\ntype error: %s" msg
-       | UnexpectedError msg       -> printfn "\nunexpected error: %s" msg
+    try
+        f ()
+    with
+    | SyntaxError(msg, lexbuf) ->
+        printfn
+            "\nsyntax error: %s\nat token: \"%s\"\nlocation: %O"
+            msg
+            (Array.fold (sprintf "%s%c") "" lexbuf.Lexeme)
+            lexbuf.EndPos
+    | TypeError msg -> printfn "\ntype error: %s" msg
+    | UnexpectedError msg -> printfn "\nunexpected error: %s" msg
+    | InferError msg -> printfn "\ninfer error: %s" msg
+    | UnificationError msg -> printfn "\nunification error: %s" msg
+    | CompositionError msg -> printfn "\ncomposition error: %s" msg
 
 let main_interpreter filename =
-    trap <| fun () ->
+    trap
+    <| fun () ->
         printfn "loading source file '%s'..." filename
-        use fstr = new IO.FileStream (filename, IO.FileMode.Open)
-        use rd = new IO.StreamReader (fstr)
-        let prg = parse_from_TextReader rd filename Parser.program 
+        use fstr = new IO.FileStream(filename, IO.FileMode.Open)
+        use rd = new IO.StreamReader(fstr)
+        let prg = parse_from_TextReader rd filename Parser.program
         let t, v = interpret_expr [] [] prg
         printfn "type:\t%s\nvalue:\t%s" (pretty_ty t) (pretty_value v)
 
@@ -49,18 +62,20 @@ let main_interactive () =
     printfn "entering interactive mode..."
     let mutable tenv = []
     let mutable venv = []
-    while true do
-        trap <| fun () ->
-            printf "\n> "
-            stdout.Flush ()
-            let line = Console.ReadLine()
-            let x, (t, v) =
-                match parse_from_string line "LINE" Parser.interactive with 
-                | IExpr e ->
-                    "it", interpret_expr tenv venv e
 
-                | IBinding (_, x, _, _ as b) ->
-                    let t, v = interpret_expr tenv venv (LetIn (b, Var x)) // TRICK: put the variable itself as body after the in
+    while true do
+        trap
+        <| fun () ->
+            printf "\n> "
+            stdout.Flush()
+            let line = Console.ReadLine()
+
+            let x, (t, v) =
+                match parse_from_string line "LINE" Parser.interactive with
+                | IExpr e -> "it", interpret_expr tenv venv e
+
+                | IBinding(_, x, _, _ as b) ->
+                    let t, v = interpret_expr tenv venv (LetIn(b, Var x)) // TRICK: put the variable itself as body after the in
                     // update global environments
                     // tenv <- (x, t) :: tenv
                     tenv <- (x, Forall(Set.empty, t)) :: tenv
@@ -68,15 +83,21 @@ let main_interactive () =
                     x, (t, v)
 
             printfn "val %s : %s = %s" x (pretty_ty t) (pretty_value v)
-                
-    
+
+
 [<EntryPoint>]
 let main argv =
     let r =
-        try 
-            if argv.Length < 1 then main_interactive ()
-            else main_interpreter argv.[0]
+        try
+            if argv.Length < 1 then
+                main_interactive ()
+            else
+                main_interpreter argv.[0]
+
             0
-        with e -> printfn "\nexception caught: %O" e; 1
-    Console.ReadLine () |> ignore
+        with e ->
+            printfn "\nexception caught: %O" e
+            1
+
+    Console.ReadLine() |> ignore
     r
