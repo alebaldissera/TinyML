@@ -16,6 +16,12 @@ exception UnificationError of string
 
 type subst = (tyvar * ty) list
 
+let mutable tyvar_counter = 0
+
+let generate_tyvar () =
+    tyvar_counter <- tyvar_counter + 1
+    TyVar(tyvar_counter)
+
 let rec is_typevar_into_type type_var t =
     let rec is_inner = is_typevar_into_type type_var
 
@@ -24,6 +30,8 @@ let rec is_typevar_into_type type_var t =
     | TyArrow(t1, t2) -> is_inner t1 || is_inner t2
     | TyTuple(head :: tail) -> is_inner head || is_inner (TyTuple tail)
     | _ -> false
+
+
 
 // TODO implement this
 let compose_subst (s1: subst) (s2: subst) : subst =
@@ -48,30 +56,30 @@ let compose_subst (s1: subst) (s2: subst) : subst =
 
     substitutions
 
-// TODO implement this
+let ($) = compose_subst
+
 let rec unify (t1: ty) (t2: ty) : subst =
     match t1, t2 with
     | TyName c1, TyName c2 when c1 = c2 -> []
     | TyVar type_var, t
     | t, TyVar type_var -> (type_var, t) :: []
-    | TyArrow(t1, t2), TyArrow(t3, t4) -> compose_subst (unify t1 t3) (unify t2 t4)
-    | TyTuple(t1 :: tail), TyTuple(t1' :: tail') -> compose_subst (unify t1 t1') (unify (TyTuple tail) (TyTuple tail'))
-    | _ -> raise (UnificationError "Error while unify, some types are incoherent each other")
+    | TyArrow(t1, t2), TyArrow(t3, t4) -> (unify t1 t3) $ (unify t2 t4)
+    | TyTuple(t1 :: tail), TyTuple(t1' :: tail') -> (unify t1 t1') $ (unify (TyTuple tail) (TyTuple tail'))
+    | _ -> raise (UnificationError(sprintf "Error while unify, some types are incoherent each other, %O - %O" t1 t2))
 
 // TODO implement this
-let rec apply_subst (t: ty) (s: subst) : ty =
+let rec apply_subst (t: ty) (substitutions: subst) : ty =
     match t with
     | TyName constant_type -> TyName constant_type
     | TyVar type_var ->
-        let t = List.tryFind (fun elm -> fst elm = type_var) s
+        let t = List.tryFind (fun elm -> fst elm = type_var) substitutions
 
         match t with
         | Some s -> snd s
         | None -> TyVar type_var
-    | TyArrow(t1, t2) -> TyArrow(apply_subst t1 s, apply_subst t2 s)
-    | TyTuple l -> TyTuple(l |> List.map (fun elm -> apply_subst elm s))
+    | TyArrow(t1, t2) -> TyArrow(apply_subst t1 substitutions, apply_subst t2 substitutions)
+    | TyTuple l -> TyTuple(l |> List.map (fun elm -> apply_subst elm substitutions))
 
-let ($) = compose_subst
 
 // TODO implement this
 let rec freevars_ty t =
@@ -117,6 +125,8 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
 
     | BinOp(e1, op, e2) -> typeinfer_expr env (App(App(Var op, e1), e2))
 
+    | UnOp(op, expression) -> typeinfer_expr env (App(Var op, expression))
+
     | IfThenElse(e1, e2, Some e3) ->
         // TODO optionally you can follow the original type inference rule and apply/compose substitutions incrementally (see Advanced Notes on ML, Table 4, page 5)
         let t1, s1 = typeinfer_expr env e1
@@ -126,6 +136,8 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
         let s5 = unify t2 t3
         let s = s5 $ s4 $ s3 $ s2 $ s1
         apply_subst t2 s, s
+
+    //| Lambda (parameter, None, expression) ->
 
 
 
@@ -168,6 +180,7 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         let env' = (x, t1) :: env
         typecheck_expr env' e2
 
+    // Type checking of annotated let-rec binding
     | LetRec(identifier, Some type_annotation, let_expression, in_expression) ->
         // Since this is a let-rec, let's generate the new environment with the new identifier
 
@@ -184,6 +197,7 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         | TyArrow(_, _) -> typecheck_expr env' in_expression
         | _ -> type_error "typecheck_expr: let-rec-binding are supported only for lambda, given %O" let_expression_type
 
+    // Type inference of let-rec binding
     | LetRec(identifier, None, let_expression, expression) ->
         // Here we have to perform the type inference algorithm to check out the type of the identifier based on the expression given
         type_error "unannotated let-rec-binding are not supported by the type checker"
@@ -196,7 +210,8 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         TyArrow(parameter_type, expression_type)
 
     // TODO implementare il type checker per lambda non annotate
-    | Lambda(x, None, e) -> type_error "unannotated lambdas are not supported by the type checker"
+    // Type inference of lambda parameter
+    | Lambda(parameter, None, expression) -> type_error "unannotated lambdas are not supported by the type checker"
 
     | App(e1, e2) ->
         let t2 = typecheck_expr env e2
