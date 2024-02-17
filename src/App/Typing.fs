@@ -48,7 +48,6 @@ let rec apply_subst (t: ty) (s: subst) : ty =
     | TyArrow(t1, t2) -> TyArrow(apply_subst t1 s, apply_subst t2 s)
     | TyTuple l -> TyTuple(l |> List.map (fun elm -> apply_subst elm s))
 
-// TODO implement this
 let compose_subst (s1: subst) (s2: subst) : subst =
 
     // application of the first one to the codomain of the second one
@@ -103,8 +102,6 @@ let rec unify (t1: ty) (t2: ty) : subst =
     | TyTuple(t1 :: tail), TyTuple(t1' :: tail') -> (unify t1 t1') $ (unify (TyTuple tail) (TyTuple tail'))
     | _ -> raise (UnificationError("Error while unify, some types are incoherent each other", t1, t2))
 
-
-// TODO implement this
 let rec freevars_ty t =
     match t with
     | TyName _ -> Set.empty
@@ -113,10 +110,8 @@ let rec freevars_ty t =
     | TyTuple(head :: tail) -> Set.union (freevars_ty head) (freevars_ty (TyTuple tail))
     | TyTuple [] -> Set.empty
 
-// TODO implement this
 let freevars_scheme (Forall(tvs, t)) = Set.difference (freevars_ty t) tvs
 
-// TODO implement this
 let rec freevars_scheme_env (env: scheme env) =
     // env : (string * (Set<tyvar> * ty)) list
     match env with
@@ -135,12 +130,21 @@ let inst (Forall(free_var, t)) =
 
     apply_subst t polymorphic_var_subst
 
+/// <summary>Apply a substitution to a scheme</summary>
+/// <param name="Forall(tyvar, ty)">The scheme where apply the substitution</param>
+/// <param name="subst">The substitution to apply</param>
+/// <returns>A new scheme with the substitution applied</returns>
 let rec apply_subst_scheme (Forall(tyvar, ty)) (subst: subst) =
     let theta' =
         List.filter (fun (scheme_tyvar: tyvar, _) -> not (Set.contains scheme_tyvar tyvar)) subst
 
     Forall(tyvar, apply_subst ty theta')
 
+
+/// <summary>Apply a substitution to an environment</summary>
+/// <param name="env">The environment to apply the substitution</param>
+/// <param name="subst">The substitution to apply</param>
+/// <returns>A new environment with the the substitution applied</returns>
 let rec apply_subst_env (env: scheme env) (subst: subst) =
     env |> List.map (fun (id, schema) -> (id, apply_subst_scheme schema subst))
 
@@ -151,6 +155,7 @@ let gamma0 =
       ("/", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
       ("<", TyArrow(TyInt, TyArrow(TyInt, TyBool))) ]
 
+/// <summary>This list contains maps for operator which may implements name overloading. The tuple contains as fist element the operator, as second element a list containing a tuple with input types and output type for that operator.</summary>
 let binary_operators =
     [ ("+",
        [ (TyInt, TyInt, TyInt)
@@ -159,7 +164,7 @@ let binary_operators =
       ("-", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
       ("*", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
       ("/", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
-      ("%", [ (TyInt, TyInt, TyInt) ])
+      ("%", [ (TyInt, TyInt, TyInt); (TyFloat, TyFloat, TyFloat) ])
       ("=",
        [ (TyInt, TyInt, TyBool)
          (TyFloat, TyFloat, TyBool)
@@ -205,12 +210,15 @@ let binary_operators =
       ("and", [ (TyBool, TyBool, TyBool) ])
       ("or", [ (TyBool, TyBool, TyBool) ]) ]
 
+
+/// <summary>A list of unary operator. The contained tuples have the operator as first element and a list of tuple with input type and output type as second element.</summary>
 let unary_operators =
     [ ("not", [ (TyBool, TyBool) ]); ("-", [ (TyInt, TyInt); (TyFloat, TyFloat) ]) ]
 
-// type inference
-//
-
+/// <summary>Try to infer o deduce the type of an expression.</summary>
+/// <param name="env">The current binding environment.</param>
+/// <param name="e">The expression to infer types</param>
+/// <returns>The type of the expression and a set of substitution.</returns>
 let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
     match e with
     | Lit(LInt _) -> TyInt, []
@@ -431,9 +439,6 @@ let rec typeinfer_expr (env: scheme env) (e: expr) : ty * subst =
         with CompositionError(message) ->
             unexpected_error "typeinfer_expr: %s" message
 
-
-    // TODO complete this implementation
-
     | _ -> unexpected_error "typeinfer_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
 
 // type checker
@@ -454,18 +459,16 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         try
             lookup env x
         with :? KeyNotFoundException ->
-            type_error "typecheck_expr: variable identifier not defined (%s)" x
+            type_error "variable identifier not defined (%s)" x
 
-    | Let(x, None, e1, e2) ->
-        let t1 = typecheck_expr env e1
-        let env' = (x, t1) :: env
-        typecheck_expr env' e2
-
-    | Let(x, Some t, e1, e2) ->
+    | Let(x, type_annotation, e1, e2) ->
         let t1 = typecheck_expr env e1
 
-        if t <> t1 then
-            type_error "type %O differs from type %O in let-binding" t1 t
+        match type_annotation with
+        | None -> ()
+        | Some ty ->
+            if ty <> t1 then
+                type_error "type %s differs from type %s in let-binding" (pretty_ty t1) (pretty_ty ty)
 
         let env' = (x, t1) :: env
         typecheck_expr env' e2
@@ -479,17 +482,19 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
 
         // Check if the annotation and the type of the expression we are assigning are the same
         if let_expression_type <> type_annotation then
-            type_error "type %O differs from type %O in let-rec-binding" type_annotation let_expression_type
+            type_error
+                "type %s differs from type %s in let-rec-binding"
+                (pretty_ty type_annotation)
+                (pretty_ty let_expression_type)
 
         // Since this is a let-rec let's check if the expression we are assigning is a lambda.
         // We don't support recursive variables defined on literals
         match let_expression_type with
         | TyArrow(_, _) -> typecheck_expr env' in_expression
-        | _ -> type_error "typecheck_expr: let-rec-binding are supported only for lambda, given %O" let_expression_type
+        | _ -> type_error "let-rec-binding are supported only for lambda, given %s" (pretty_ty let_expression_type)
 
     // Type inference of let-rec binding
-    | LetRec(identifier, None, let_expression, expression) ->
-        type_error "unannotated let-rec-binding are not supported by the type checker"
+    | LetRec(_, None, _, _) -> type_error "unannotated let-rec-binding are not supported by the type checker"
 
     | Lambda(parameter, Some parameter_type, expression) ->
         let env' = (parameter, parameter_type) :: env
@@ -504,122 +509,77 @@ let rec typecheck_expr (env: ty env) (e: expr) : ty =
         match typecheck_expr env e1 with
         | TyArrow(ta, tb) ->
             if ta <> t2 then
-                type_error "argument has type %O while function parameter has type %O in application" t2 ta
+                type_error
+                    "argument has type %s while function parameter has type %s in application"
+                    (pretty_ty t2)
+                    (pretty_ty ta)
 
             tb
-        | t1 -> type_error "left hand of application is not an arrow type: %O" t1
+        | t1 -> type_error "left hand of application is not an arrow type: %s" (pretty_ty t1)
 
-    | IfThenElse(e1, e2, Some e3) ->
+    | IfThenElse(e1, e2, e3) ->
         let t1 = typecheck_expr env e1
 
         if t1 <> TyBool then
-            type_error "bool expected in if guard, but got %O" t1
+            type_error "bool expected in if guard, but got %s" (pretty_ty t1)
 
         let t2 = typecheck_expr env e2
-        let t3 = typecheck_expr env e3
 
-        if t2 <> t3 then
-            type_error "then and else branches have different types: %O and %O" t2 t3
+        match e3 with
+        | None -> ()
+        | Some expression ->
+            let t3 = typecheck_expr env expression
+
+            if t2 <> t3 then
+                type_error "then and else branches have different types: %s and %s" (pretty_ty t2) (pretty_ty t3)
+
 
         t2
 
-    | IfThenElse(condition, expression, None) ->
-        let t1 = typecheck_expr env condition
+    | BinOp(left_expression, operator, right_expression) ->
+        let left_type = typecheck_expr env left_expression
+        let right_type = typecheck_expr env right_expression
 
-        if t1 <> TyBool then
-            type_error "bool expected in if guard, but got %O" t1
+        try
+            let _, operator_types = binary_operators |> List.find (fun (op, _) -> op = operator)
 
-        typecheck_expr env expression
+            try
+                let (_, _, out_type) =
+                    operator_types
+                    |> List.find (fun (l_type, r_type, _) -> l_type = left_type && r_type = right_type)
 
-    | BinOp(e1, ("+" | "-" | "*" | "/" as op), e2) ->
-        let t1 = typecheck_expr env e1
-        let t2 = typecheck_expr env e2
+                out_type
+            with :? KeyNotFoundException ->
+                type_error
+                    "operator (%s) undefined on types (%s) and (%s), available types: (%O)"
+                    operator
+                    (pretty_ty left_type)
+                    (pretty_ty right_type)
+                    operator_types
 
-        match (op, t1, t2) with
-        | ("+", TyString, TyString) -> TyString
-        | (_, TyInt, TyInt) -> TyInt
-        | (_, TyInt, TyFloat) -> TyFloat
-        | (_, TyFloat, TyInt) -> TyFloat
-        | (_, TyFloat, TyFloat) -> TyFloat
-        | (_, TyInt, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
-        | (_, TyFloat, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
-        | (_, _, TyInt) -> type_error "left hand of (%s) operator is not an int or float: %O" op t1
-        | (_, _, TyFloat) -> type_error "left hand of (%s) operator is not an int or float: %O" op t1
-        | ("+", TyString, _) -> type_error "right hand of (%s) operator is not a string: %O" op t2
-        | _ -> type_error "the operator %s is not defined for the given types: %O - %O" op t1 t2
+        with :? KeyNotFoundException ->
+            type_error "undefined operator (%s)" operator
 
-    | BinOp(left_expr, ("%" as op), right_expr) ->
-        let left_type = typecheck_expr env left_expr
+    | UnOp(operator, expression) ->
+        let expression_type = typecheck_expr env expression
 
-        if left_type <> TyInt then
-            type_error "left hand of (%s) operator is not an int: %O" op left_type
+        try
+            let _, operator_types = unary_operators |> List.find (fun (op, _) -> op = operator)
 
-        let right_type = typecheck_expr env right_expr
+            try
+                let _, out_type =
+                    operator_types |> List.find (fun (in_type, _) -> in_type = expression_type)
 
-        if right_type <> TyInt then
-            type_error "left hand of (%s) operator is not an int: %O" op right_type
+                out_type
+            with :? KeyNotFoundException ->
+                type_error
+                    "undefined unary operator (%s) on type (%s), available types: (%O)"
+                    operator
+                    (pretty_ty expression_type)
+                    operator_types
+        with :? KeyNotFoundException ->
+            type_error "undefined unary operator (%s)" operator
 
-        TyInt
+    | Tuple elements -> TyTuple(elements |> List.map (typecheck_expr env))
 
-    | BinOp(e1, ("=" | "<>" as op), e2) ->
-        let t1 = typecheck_expr env e1
-        let t2 = typecheck_expr env e2
-
-        if t1 <> t2 then
-            type_error "left and right hands of operator %s are different: %O and %O" op t1 t2
-
-        TyBool
-
-    | BinOp(e1, ("<" | ">" | "<=" | ">=" as op), e2) ->
-        let t1 = typecheck_expr env e1
-        let t2 = typecheck_expr env e2
-
-        match (t1, t2) with
-        | (TyString, TyString) -> TyBool
-        | (TyBool, TyBool) -> TyBool
-        | (TyInt, TyInt) -> TyBool
-        | (TyInt, TyFloat) -> TyBool
-        | (TyFloat, TyInt) -> TyBool
-        | (TyFloat, TyFloat) -> TyBool
-        | (TyInt, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
-        | (TyFloat, _) -> type_error "right hand of (%s) operator is not an int or float: %O" op t2
-        | (TyString, _) -> type_error "right hand of (%s) operator is not a string: %O" op t2
-        | (TyBool, _) -> type_error "right hand of (%s) operator is not a bool: %O" op t2
-        | _ -> type_error "the operator %s is not defined for the given types: %O - %O" op t1 t2
-
-    | BinOp(left_expr, ("and" | "or" as op), right_expr) ->
-        let left_type = typecheck_expr env left_expr
-
-        if left_type <> TyBool then
-            type_error "left hand of (%s) operator is not a bool: %O" op left_type
-
-        let right_type = typecheck_expr env right_expr
-
-        if right_type <> TyBool then
-            type_error "left hand of (%s) operator is not a bool: %O" op right_type
-
-        TyBool
-
-    | BinOp(_, op, _) -> unexpected_error "typecheck_expr: unsupported binary operator (%s)" op
-
-    | UnOp("not", e) ->
-        let t = typecheck_expr env e
-
-        if t <> TyBool then
-            type_error "operand of not-operator is not a bool: %O" t
-
-        TyBool
-
-    | UnOp("-", expression) ->
-        let expr_type = typecheck_expr env expression
-
-        if expr_type <> TyInt && expr_type <> TyFloat then
-            type_error "operand of minus operator is not of type int or float: %O" expr_type
-
-        expr_type
-
-    | UnOp(op, _) -> type_error "typecheck_expr: unsupported unary operator (%s)" op
-
-    | Tuple es -> TyTuple(List.map (typecheck_expr env) es)
-
-    | _ -> unexpected_error "typecheck_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
+    | _ -> unexpected_error "unsupported expression: %s [AST: %A]" (pretty_expr e) e
