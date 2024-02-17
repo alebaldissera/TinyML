@@ -21,12 +21,6 @@ let create_type_variable () =
 
 type subst = (tyvar * ty) list
 
-let mutable tyvar_counter = 0
-
-let generate_tyvar () =
-    tyvar_counter <- tyvar_counter + 1
-    TyVar(tyvar_counter)
-
 let rec is_typevar_into_type type_var t =
     let rec is_inner = is_typevar_into_type type_var
 
