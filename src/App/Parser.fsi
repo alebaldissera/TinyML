@@ -28,6 +28,10 @@ type token =
   | AND
   | OR
   | NOT
+  | FLOAT_OP
+  | INT_OP
+  | STRING_OP
+  | CHAR_OP
   | COLON
   | SEMICOLON2
   | COMMA
@@ -64,6 +68,10 @@ type tokenId =
     | TOKEN_AND
     | TOKEN_OR
     | TOKEN_NOT
+    | TOKEN_FLOAT_OP
+    | TOKEN_INT_OP
+    | TOKEN_STRING_OP
+    | TOKEN_CHAR_OP
     | TOKEN_COLON
     | TOKEN_SEMICOLON2
     | TOKEN_COMMA

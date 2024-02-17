@@ -202,7 +202,16 @@ let binary_operators =
 
 /// <summary>A list of unary operator. The contained tuples have the operator as first element and a list of tuple with input type and output type as second element.</summary>
 let unary_operators =
-    [ ("not", [ (TyBool, TyBool) ]); ("-", [ (TyInt, TyInt); (TyFloat, TyFloat) ]) ]
+    [ ("not", [ (TyBool, TyBool) ])
+      ("-", [ (TyInt, TyInt); (TyFloat, TyFloat) ])
+      ("float", [ (TyInt, TyFloat); (TyFloat, TyFloat); (TyString, TyFloat) ])
+      ("int", [ (TyInt, TyInt); (TyFloat, TyInt); (TyString, TyInt) ])
+      ("string",
+       [ (TyInt, TyString)
+         (TyFloat, TyString)
+         (TyString, TyString)
+         (TyChar, TyString) ])
+      ("char", [ (TyInt, TyChar); (TyFloat, TyChar); (TyString, TyChar); (TyChar, TyChar) ]) ]
 
 /// <summary>Try to infer o deduce the type of an expression.</summary>
 /// <param name="env">The current binding environment.</param>

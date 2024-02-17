@@ -136,18 +136,53 @@ let rec eval_expr (venv: value env) (e: expr) : value =
         // This function can be used to look-up for a user defined operator and then call the corresponding lambda function
         unexpected_error "eval_expr: unsupported binary operator (%s)" op
 
-    | UnOp(("-" | "not" as op), expression) ->
+    | UnOp(op, expression) ->
         let result = eval_expr venv expression
 
-        match (op, result) with
-        | ("-", VLit(LInt value)) -> VLit(LInt(-value))
-        | ("-", VLit(LFloat value)) -> VLit(LFloat(-value))
-        | ("not", VLit(LBool value)) -> VLit(LBool(not value))
-        | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+        match op with
+        | "-" ->
+            match result with
+            | VLit(LInt value) -> VLit(LInt(-value))
+            | VLit(LFloat value) -> VLit(LFloat(-value))
+            | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+        | "not" ->
+            match result with
+            | VLit(LBool value) -> VLit(LBool(not value))
+            | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+        | "int" ->
+            match result with
+            | VLit(LInt value) -> VLit(LInt(int value))
+            | VLit(LFloat value) -> VLit(LInt(int value))
+            | VLit(LString value) -> VLit(LInt(int value))
+            | VLit(LChar value) -> VLit(LInt(int value))
+            | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
 
-    | UnOp(op, _) ->
-        // This function can be used to look-up for a user defined operator and then call the corresponding lambda function
-        unexpected_error "eval_expr: unsupported unary operator (%s)" op
+        | "float" ->
+            match result with
+            | VLit(LInt value) -> VLit(LFloat(float value))
+            | VLit(LFloat value) -> VLit(LFloat(float value))
+            | VLit(LString value) -> VLit(LFloat(float value))
+            | VLit(LChar value) -> VLit(LFloat(float value))
+            | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+
+        | "string" ->
+            match result with
+            | VLit(LInt value) -> VLit(LString(string value))
+            | VLit(LFloat value) -> VLit(LString(string value))
+            | VLit(LString value) -> VLit(LString(string value))
+            | VLit(LChar value) -> VLit(LString(string value))
+            | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+
+        | "char" ->
+            match result with
+            | VLit(LInt value) -> VLit(LChar(char value))
+            | VLit(LFloat value) -> VLit(LChar(char value))
+            | VLit(LString value) -> VLit(LChar(char value))
+            | VLit(LChar value) -> VLit(LChar(char value))
+            | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
+
+        // This case can be used to lookup for user defined unary operators
+        | _ -> unexpected_error "eval_expr: unsupported unary operator (%s)" op
 
     | Tuple(expressions) -> VTuple(List.map (fun expr -> eval_expr venv expr) expressions)
 
