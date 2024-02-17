@@ -1,10 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
-
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Ast.fs" />
@@ -25,7 +23,6 @@
     <Content Include="packages.config" />
     <None Include="test.tml" />
   </ItemGroup>
-
   <ItemGroup>
     <Reference Include="FsLexYacc.Runtime">
       <HintPath>packages\FsLexYacc.Runtime.10.0.0\lib\net46\FsLexYacc.Runtime.dll</HintPath>
@@ -39,20 +36,17 @@
       <Private>True</Private>
     </Reference>
   </ItemGroup>
-
-	<ItemGroup>
-		<PackageReference Include="FsLexYacc" Version="11.0.1">
-			<GeneratePathProperty>
-			</GeneratePathProperty>
-		</PackageReference>
-		<PackageReference Include="FsLexYacc.Runtime" Version="11.0.1">
-			<GeneratePathProperty>
-			</GeneratePathProperty>
-		</PackageReference>
-	</ItemGroup>
-  
-	<ItemGroup>
-		<None Include="test.tml" />
-	</ItemGroup>
-
+  <ItemGroup>
+    <PackageReference Include="FsLexYacc" Version="11.0.1">
+      <GeneratePathProperty>
+      </GeneratePathProperty>
+    </PackageReference>
+    <PackageReference Include="FsLexYacc.Runtime" Version="11.0.1">
+      <GeneratePathProperty>
+      </GeneratePathProperty>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="test.tml" />
+  </ItemGroup>
 </Project>

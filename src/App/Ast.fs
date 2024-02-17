@@ -155,7 +155,13 @@ let rec pretty_ty t =
     match t with
     | TyName s -> s
     | TyArrow(t1, t2) -> sprintf "%s -> %s" (pretty_ty t1) (pretty_ty t2)
-    | TyVar n -> sprintf "'%d" n
+    | TyVar n -> 
+        let rec getChar x =
+            if x > 26 then
+                string (char (x - 26 + 96)) + getChar (x - 26)
+            else
+                string (char (x + 96))
+        sprintf "'%s" (getChar n)
     | TyTuple ts -> sprintf "(%s)" (pretty_tupled pretty_ty ts)
 
 let pretty_lit lit =
