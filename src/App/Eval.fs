@@ -51,16 +51,13 @@ let rec eval_expr (venv: value env) (e: expr) : value =
             eval_expr venv' in_expression
         | _ -> unexpected_error "eval_expr: non lambda expression assigned to let-rec, given %O" let_expression
 
-    | IfThenElse(condition, expression1, Some expression2) ->
+    | IfThenElse(condition, expression1, expression2) ->
         match eval_expr venv condition with
         | VLit(LBool true) -> eval_expr venv expression1
-        | VLit(LBool false) -> eval_expr venv expression2
-        | _ -> unexpected_error "eval_expr: non-boolean in if guard %s [AST: %A]" (pretty_expr e) e
-
-    | IfThenElse(condition, expression1, None) ->
-        match eval_expr venv condition with
-        | VLit(LBool true) -> eval_expr venv expression1
-        | VLit(LBool false) -> VLit(LUnit)
+        | VLit(LBool false) ->
+            match expression2 with
+            | None -> VLit(LUnit)
+            | Some expression -> eval_expr venv expression
         | _ -> unexpected_error "eval_expr: non-boolean in if guard %s [AST: %A]" (pretty_expr e) e
 
     | BinOp(left_expression, ("+" | "-" | "*" | "/" as op), right_expression) ->
@@ -135,7 +132,9 @@ let rec eval_expr (venv: value env) (e: expr) : value =
             )
         )
 
-    | BinOp(_, op, _) -> unexpected_error "eval_expr: unsupported binary operator (%s)" op
+    | BinOp(_, op, _) ->
+        // This function can be used to look-up for a user defined operator and then call the corresponding lambda function
+        unexpected_error "eval_expr: unsupported binary operator (%s)" op
 
     | UnOp(("-" | "not" as op), expression) ->
         let result = eval_expr venv expression
@@ -146,8 +145,9 @@ let rec eval_expr (venv: value env) (e: expr) : value =
         | ("not", VLit(LBool value)) -> VLit(LBool(not value))
         | _ -> unexpected_error "eval_expr: illegal operand in unary operator (%s) %s" op (pretty_value result)
 
-    | UnOp(op, _) -> unexpected_error "eval_expr: unsupported unary operator (%s)" op
-    // TODO complete this implementation
+    | UnOp(op, _) ->
+        // This function can be used to look-up for a user defined operator and then call the corresponding lambda function
+        unexpected_error "eval_expr: unsupported unary operator (%s)" op
 
     | Tuple(expressions) -> VTuple(List.map (fun expr -> eval_expr venv expr) expressions)
 
@@ -155,7 +155,6 @@ let rec eval_expr (venv: value env) (e: expr) : value =
 
 // Apply a binary math operation with type escalation
 and math_operation str_op int_operator float_operator env left_res right_res =
-
 
     match (left_res, right_res) with
     | (VLit(LInt l_value), VLit(LInt r_value)) -> VLit(LInt(int_operator l_value r_value))
