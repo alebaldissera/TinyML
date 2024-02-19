@@ -5,6 +5,22 @@ The initial source code provided by the professor can be found at: https://githu
 
 This interpreter implements only s subset of expression of ML.
 
+# Run the project
+
+You can run the project directly with:
+
+```bash
+dotnet run --project src .\\src\\App\\TinyML.fsproj
+```
+
+Or build the project with:
+
+```bash
+dotnet build --project src .\\src\\App\\TinyML.fsproj
+```
+
+You can also choose to use the type checker algorithm instead the type inference with the flag: `--type-checker`.
+
 # List of implementations of the interpreter
 
 Here there is a brief summary of implementation on the type checker and the evaluator
