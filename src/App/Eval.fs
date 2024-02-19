@@ -71,22 +71,11 @@ let rec eval_expr (venv: value env) (e: expr) : value =
         | ("-", _, _) -> math_operation op (-) (-) venv left_res right_res
         | ("*", _, _) -> math_operation op (*) (*) venv left_res right_res
         | ("/", _, _) -> math_operation op (/) (/) venv left_res right_res
+        | ("%", _, _) -> math_operation op (%) (%) venv left_res right_res
         | _ ->
             unexpected_error
                 "eval_expr: illegal operands in binary operator (%s) %s - %s"
                 op
-                (pretty_value left_res)
-                (pretty_value right_res)
-
-    | BinOp(left_expression, "%", right_expression) ->
-        let left_res = eval_expr venv left_expression
-        let right_res = eval_expr venv right_expression
-
-        match (left_res, right_res) with
-        | (VLit(LInt l_value), (VLit(LInt r_value))) -> VLit(LInt(l_value % r_value))
-        | _ ->
-            unexpected_error
-                "eval_expr: illegal operands in binary operator (%%) %s - %s"
                 (pretty_value left_res)
                 (pretty_value right_res)
 
